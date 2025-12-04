@@ -1,0 +1,63 @@
+{
+  "superllm": {
+    "id": "superllm-main",
+    "model_path": "models/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+    "model_name": "llama-3.2-3b"
+  },
+  "superclusters": {
+    "sc-main": {
+      "clusters": ["cluster-1"],
+      "direct_nodes": ["node-direct-1"],
+      "fitness": 0.7
+    }
+  },
+  "clusters": {
+    "cluster-1": {
+      "nodes": ["node-1", "node-2", "node-3", "node-4"],
+      "fitness": 0.7,
+      "supercluster": "sc-main"
+    }
+  },
+  "nodes": {
+    "node-1": {
+      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_a_name": "tinyllama-1.1b",
+      "model_b_name": "tinyllama-1.1b",
+      "fitness": 0.7,
+      "cluster": "cluster-1"
+    },
+    "node-2": {
+      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_a_name": "tinyllama-1.1b",
+      "model_b_name": "tinyllama-1.1b",
+      "fitness": 0.7,
+      "cluster": "cluster-1"
+    },
+    "node-3": {
+      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_a_name": "tinyllama-1.1b",
+      "model_b_name": "tinyllama-1.1b",
+      "fitness": 0.7,
+      "cluster": "cluster-1"
+    },
+    "node-4": {
+      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_a_name": "tinyllama-1.1b",
+      "model_b_name": "tinyllama-1.1b",
+      "fitness": 0.7,
+      "cluster": "cluster-1"
+    },
+    "node-direct-1": {
+      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_a_name": "tinyllama-1.1b",
+      "model_b_name": "tinyllama-1.1b",
+      "fitness": 0.7,
+      "supercluster": "sc-main"
+    }
+  }
+}

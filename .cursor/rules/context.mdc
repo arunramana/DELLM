@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+use DELLM.md for reference to answer any questions. it contains the scope and mechanisms of the project.
+use the md files in DOCS folder to answer any specific questions regarding the architectural logic.
+while implementing the code, keep the code minimal and working.
+simplicity of code and project structure are vital
