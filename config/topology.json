@@ -20,42 +20,32 @@
   },
   "nodes": {
     "node-1": {
-      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_a_name": "tinyllama-1.1b",
-      "model_b_name": "tinyllama-1.1b",
+      "model_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_name": "tinyllama-1.1b",
       "fitness": 0.7,
       "cluster": "cluster-1"
     },
     "node-2": {
-      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_a_name": "tinyllama-1.1b",
-      "model_b_name": "tinyllama-1.1b",
+      "model_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_name": "tinyllama-1.1b",
       "fitness": 0.7,
       "cluster": "cluster-1"
     },
     "node-3": {
-      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_a_name": "tinyllama-1.1b",
-      "model_b_name": "tinyllama-1.1b",
+      "model_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_name": "tinyllama-1.1b",
       "fitness": 0.7,
       "cluster": "cluster-1"
     },
     "node-4": {
-      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_a_name": "tinyllama-1.1b",
-      "model_b_name": "tinyllama-1.1b",
+      "model_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_name": "tinyllama-1.1b",
       "fitness": 0.7,
       "cluster": "cluster-1"
     },
     "node-direct-1": {
-      "model_a_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_b_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-      "model_a_name": "tinyllama-1.1b",
-      "model_b_name": "tinyllama-1.1b",
+      "model_path": "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+      "model_name": "tinyllama-1.1b",
       "fitness": 0.7,
       "supercluster": "sc-main"
     }

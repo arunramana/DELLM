@@ -50,21 +50,13 @@ class TransformerSynthesis:
         
         query_context = f"\n\nOriginal question: {original_query}" if original_query else ""
         
-        prompt = f"""You are synthesizing results from multiple processing steps into one coherent answer.
+        prompt = f"""Combine these results into one clear answer:
 
-Results from each step:
 {combined}{query_context}
 
-Instructions:
-1. Combine all results into a single, comprehensive answer
-2. Address all parts of the original question
-3. Remove any duplicate information
-4. Present the answer clearly and logically
-5. If results seem incomplete or contradictory, note this
-
-Provide the final synthesized answer:"""
+Answer:"""
         
-        answer = self.llm.complete(prompt, max_tokens=512)
+        answer = self.llm.complete(prompt, max_tokens=256)  # Reduced from 512 for faster synthesis
         
         if not answer or answer.strip() == "":
             # Fallback: join unique answers

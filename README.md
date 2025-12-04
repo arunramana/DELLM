@@ -45,7 +45,7 @@ User Query
     ↓
 [2. Cluster Router] - Distributes chunks to all available nodes
     ↓
-[3. Node Processing] - Parallel execution with dual-model voting
+[3. Node Processing] - Parallel execution with single model
     ↓
 [4. Streaming Assembly] - Collects responses with weighted voting
     ↓
@@ -60,7 +60,7 @@ Final Answer
 
 - **Semantic Decomposition**: Splits queries while preserving meaning (no meaningless fragments)
 - **Parallel Processing**: Uses all available nodes efficiently
-- **Dual-Model Voting**: Each node uses two models for consensus
+- **Single Model per Node**: Each node uses one lightweight model
 - **Weighted Aggregation**: Combines results based on node fitness and confidence
 - **Local LLMs**: Runs entirely on local models (no API calls)
 - **Thread-Safe**: Handles concurrent model access safely
@@ -79,7 +79,7 @@ DELLM/
 │   ├── main.py         # FastAPI server
 │   └── client.py       # Test client
 ├── core/
-│   └── node.py         # Node execution (dual-model voting)
+│   └── node.py         # Node execution (single model)
 ├── utils/
 │   └── llm_client.py   # LLM wrapper (llama-cpp-python)
 ├── config/
@@ -93,7 +93,7 @@ DELLM/
 
 Edit `config/topology.json` to configure:
 - Number of nodes
-- Model paths for each node (model_a_path, model_b_path)
+- Model path for each node (model_path)
 - Synthesis model path (superllm.model_path)
 - Initial fitness scores
 

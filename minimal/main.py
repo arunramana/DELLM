@@ -42,10 +42,8 @@ def initialize_minimal_network():
     for node_id, node_config in topology["nodes"].items():
         node = Node(
             node_id=node_id,
-            model_a_path=node_config.get("model_a_path"),
-            model_b_path=node_config.get("model_b_path"),
-            model_a_name=node_config.get("model_a_name", "tinyllama-1.1b"),
-            model_b_name=node_config.get("model_b_name", "tinyllama-1.1b")
+            model_path=node_config.get("model_path"),
+            model_name=node_config.get("model_name", "tinyllama-1.1b")
         )
         node.fitness = node_config.get("fitness", 0.7)
         nodes[node_id] = node
