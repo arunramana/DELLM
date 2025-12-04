@@ -1,13 +1,14 @@
 """Cluster Router: Routes chunks to nodes based on latency + fitness."""
 import heapq
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from core.node import Node
+from core.transformer_node import TransformerNode
 
 
 class ClusterRouter:
     """Routes query chunks to optimal nodes."""
     
-    def __init__(self, nodes: Dict[str, Node]):
+    def __init__(self, nodes: Dict[str, Union[Node, TransformerNode]]):
         self.nodes = nodes
         # Track node latencies (updated from actual executions)
         self.node_latencies = {nid: 1.0 for nid in nodes.keys()}
