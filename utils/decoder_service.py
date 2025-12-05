@@ -1,7 +1,7 @@
 """Decoder Service: Converts embeddings to text."""
 import torch
 from typing import Optional
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import threading
 
 
@@ -28,7 +28,12 @@ class DecoderService:
         try:
             print(f"Loading decoder model: {self.model_name}...")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModel.from_pretrained(self.model_name)
+            # Ensure pad token is set (some models don't have it by default)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            
+            # Use AutoModelForCausalLM to get LM head for text generation
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
             self.model.to(self.device)
             self.model.eval()  # Set to evaluation mode
             print(f"Decoder model loaded successfully on {self.device}")
@@ -38,11 +43,12 @@ class DecoderService:
     
     def decode(self, embeddings: torch.Tensor, max_length: int = 256) -> str:
         """
-        Decode embeddings to text by finding closest tokens.
+        Decode processed embeddings to text using LM head.
+        Uses the last hidden state to generate coherent text.
         
         Args:
-            embeddings: Embeddings tensor of shape [seq_len, hidden_dim]
-            max_length: Maximum tokens to decode (not used, kept for compatibility)
+            embeddings: Processed embeddings tensor of shape [seq_len, hidden_dim]
+            max_length: Maximum tokens to generate
         
         Returns:
             Decoded text
@@ -51,41 +57,61 @@ class DecoderService:
             embeddings = embeddings.to(self.device)
             
             with torch.no_grad():
-                # Get input embeddings from model (vocabulary embeddings)
-                # Handle different model architectures
-                try:
-                    # Try standard method first
-                    embedding_layer = self.model.get_input_embeddings()
-                    input_embeddings = embedding_layer.weight  # [vocab_size, hidden_dim]
-                except AttributeError:
-                    # Fallback for models without get_input_embeddings
-                    # Try Llama architecture: model.model.embed_tokens
-                    if hasattr(self.model, 'model') and hasattr(self.model.model, 'embed_tokens'):
-                        input_embeddings = self.model.model.embed_tokens.weight
-                    # Try direct embed_tokens
-                    elif hasattr(self.model, 'embed_tokens'):
-                        input_embeddings = self.model.embed_tokens.weight
-                    # Try embeddings.word_embeddings
-                    elif hasattr(self.model, 'embeddings') and hasattr(self.model.embeddings, 'word_embeddings'):
-                        input_embeddings = self.model.embeddings.word_embeddings.weight
-                    else:
-                        raise ValueError(f"Cannot find input embeddings in model {self.model_name}")
+                # Strategy: Use the last hidden state (contains most context)
+                # and generate text from it using the model's generation
+                last_hidden = embeddings[-1:, :].unsqueeze(0)  # [1, 1, hidden_dim]
                 
-                # Normalize for cosine similarity
-                embeddings_norm = torch.nn.functional.normalize(embeddings, p=2, dim=1)  # [seq_len, hidden_dim]
-                input_norm = torch.nn.functional.normalize(input_embeddings, p=2, dim=1)  # [vocab_size, hidden_dim]
+                # Get LM head to convert to logits
+                if not hasattr(self.model, 'lm_head'):
+                    raise ValueError(f"Cannot find LM head in model {self.model_name}")
                 
-                # Compute cosine similarity: [seq_len, vocab_size]
-                similarities = torch.matmul(embeddings_norm, input_norm.t())
+                logits = self.model.lm_head(last_hidden)  # [1, 1, vocab_size]
                 
-                # Get token IDs with highest similarity
-                token_ids = torch.argmax(similarities, dim=1)  # [seq_len]
+                # Get the most likely token from the last position
+                # Use top-k sampling for better results
+                top_k = 10
+                top_k_logits, top_k_indices = torch.topk(logits[0, 0, :], top_k)
                 
-                # Decode tokens to text (convert to list and remove special tokens)
-                token_ids_list = token_ids.cpu().tolist()
-                text = self.tokenizer.decode(token_ids_list, skip_special_tokens=True)
+                # Apply softmax with temperature
+                temperature = 1.0
+                probs = torch.softmax(top_k_logits / temperature, dim=-1)
+                
+                # Sample from top-k
+                sampled_idx = torch.multinomial(probs, 1).item()
+                first_token_id = top_k_indices[sampled_idx].item()
+                
+                # Now use the model to generate continuation from this token
+                # Create input_ids starting with the sampled token
+                input_ids = torch.tensor([[first_token_id]], device=self.device)
+                
+                # Generate continuation using the model
+                # We'll generate a short sequence
+                generated_ids = [first_token_id]
+                
+                for _ in range(min(max_length - 1, 100)):
+                    # Forward pass through model
+                    outputs = self.model(input_ids)
+                    next_token_logits = outputs.logits[0, -1, :]
+                    
+                    # Apply top-k filtering
+                    top_k_logits, top_k_indices = torch.topk(next_token_logits, top_k)
+                    probs = torch.softmax(top_k_logits / temperature, dim=-1)
+                    next_token_id = top_k_indices[torch.multinomial(probs, 1)].item()
+                    
+                    generated_ids.append(next_token_id)
+                    
+                    # Stop on EOS
+                    if next_token_id == self.tokenizer.eos_token_id:
+                        break
+                    
+                    # Update input_ids for next iteration
+                    input_ids = torch.cat([input_ids, torch.tensor([[next_token_id]], device=self.device)], dim=1)
+                
+                # Decode generated tokens
+                text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+                text = text.strip()
             
-            return text
+            return text if text else "Unable to generate text."
     
     def decode_with_generation(self, embeddings: torch.Tensor, max_new_tokens: int = 256) -> str:
         """
