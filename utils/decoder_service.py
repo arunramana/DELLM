@@ -52,7 +52,24 @@ class DecoderService:
             
             with torch.no_grad():
                 # Get input embeddings from model (vocabulary embeddings)
-                input_embeddings = self.model.get_input_embeddings().weight  # [vocab_size, hidden_dim]
+                # Handle different model architectures
+                try:
+                    # Try standard method first
+                    embedding_layer = self.model.get_input_embeddings()
+                    input_embeddings = embedding_layer.weight  # [vocab_size, hidden_dim]
+                except AttributeError:
+                    # Fallback for models without get_input_embeddings
+                    # Try Llama architecture: model.model.embed_tokens
+                    if hasattr(self.model, 'model') and hasattr(self.model.model, 'embed_tokens'):
+                        input_embeddings = self.model.model.embed_tokens.weight
+                    # Try direct embed_tokens
+                    elif hasattr(self.model, 'embed_tokens'):
+                        input_embeddings = self.model.embed_tokens.weight
+                    # Try embeddings.word_embeddings
+                    elif hasattr(self.model, 'embeddings') and hasattr(self.model.embeddings, 'word_embeddings'):
+                        input_embeddings = self.model.embeddings.word_embeddings.weight
+                    else:
+                        raise ValueError(f"Cannot find input embeddings in model {self.model_name}")
                 
                 # Normalize for cosine similarity
                 embeddings_norm = torch.nn.functional.normalize(embeddings, p=2, dim=1)  # [seq_len, hidden_dim]

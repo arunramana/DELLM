@@ -59,8 +59,31 @@ class EmbeddingService:
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             # Get embeddings (from embedding layer, before transformer blocks)
+            # Handle different model architectures:
+            # - Llama: model.model.embed_tokens
+            # - GPT-2/BERT: model.embeddings.word_embeddings or model.embeddings
+            # - Others: model.embeddings
             with torch.no_grad():
-                embeddings = self.model.embeddings(inputs['input_ids'])
+                input_ids = inputs['input_ids']
+                
+                # Try Llama architecture first (model.model.embed_tokens)
+                if hasattr(self.model, 'model') and hasattr(self.model.model, 'embed_tokens'):
+                    embeddings = self.model.model.embed_tokens(input_ids)
+                # Try direct embed_tokens
+                elif hasattr(self.model, 'embed_tokens'):
+                    embeddings = self.model.embed_tokens(input_ids)
+                # Try embeddings.word_embeddings (BERT-style)
+                elif hasattr(self.model, 'embeddings') and hasattr(self.model.embeddings, 'word_embeddings'):
+                    embeddings = self.model.embeddings.word_embeddings(input_ids)
+                # Try direct embeddings
+                elif hasattr(self.model, 'embeddings'):
+                    embeddings = self.model.embeddings(input_ids)
+                else:
+                    # Fallback: use model's forward pass and take first layer output
+                    # This is less efficient but works for any model
+                    outputs = self.model(**inputs, output_hidden_states=True)
+                    embeddings = outputs.hidden_states[0]  # First layer (embeddings)
+                
                 # Remove batch dimension: [batch, seq_len, hidden] -> [seq_len, hidden]
                 embeddings = embeddings.squeeze(0)
             
