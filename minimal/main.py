@@ -42,11 +42,8 @@ def initialize_minimal_network():
     for node_id, node_config in topology["nodes"].items():
         # Use model_name from config, or default to TinyLlama
         model_name = node_config.get("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-        # If it's a path, convert to HuggingFace format or use as-is
-        if model_name.endswith('.gguf'):
-            # Convert GGUF path to HuggingFace model name
-            model_name = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # Default for now
         
+        print(f"Loading transformer node {node_id} model: {model_name}...")
         node = TransformerNode(
             node_id=node_id,
             model_name=model_name,
@@ -59,14 +56,13 @@ def initialize_minimal_network():
     
     # Create embedding-based orchestrator
     superllm_config = topology["superllm"]
-    embedding_model = superllm_config.get("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
-    if embedding_model.endswith('.gguf'):
-        embedding_model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    embedding_model = superllm_config.get("embedding_model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    decoder_model = superllm_config.get("decoder_model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     
     orchestrator = EmbeddingOrchestrator(
         nodes=nodes,
         embedding_model_name=embedding_model,
-        decoder_model_name=embedding_model,  # Use same model for now
+        decoder_model_name=decoder_model,
         device="cpu"
     )
     

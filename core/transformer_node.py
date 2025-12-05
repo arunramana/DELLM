@@ -37,13 +37,22 @@ class TransformerNode:
             self.model.to(self.device)
             self.model.eval()  # Set to evaluation mode
             
-            # Get transformer layers (blocks)
-            if hasattr(self.model, 'layers'):
+            # Get transformer layers (blocks) - handle different model architectures
+            # For Llama models (TinyLlama): model.model.layers
+            # For GPT-2: model.transformer.h
+            # For others: model.layers
+            if hasattr(self.model, 'model') and hasattr(self.model.model, 'layers'):
+                # Llama architecture (TinyLlama)
+                self.transformer_layers = self.model.model.layers
+            elif hasattr(self.model, 'layers'):
+                # Direct layers
                 self.transformer_layers = self.model.layers
             elif hasattr(self.model, 'transformer') and hasattr(self.model.transformer, 'h'):
+                # GPT-2 architecture
                 self.transformer_layers = self.model.transformer.h
             else:
-                raise ValueError(f"Could not find transformer layers in model {self.model_name}")
+                raise ValueError(f"Could not find transformer layers in model {self.model_name}. "
+                               f"Model attributes: {dir(self.model)}")
             
             # Limit layers if specified
             if self.num_layers:
