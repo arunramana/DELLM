@@ -1,0 +1,64 @@
+{
+  "defaults": {
+    "initial_fitness": 0.7,
+    "default_confidence": 0.85,
+    "fitness_update_alpha": 0.9,
+    "fitness_update_beta": 0.1
+  },
+  "generation": {
+    "math_temperature": 0.3,
+    "default_temperature": 0.7,
+    "top_k": 10,
+    "max_tokens": 256,
+    "chunk_max_tokens": 128
+  },
+  "timeouts": {
+    "node_timeout_seconds": 120.0,
+    "client_timeout_seconds": 300.0
+  },
+  "training": {
+    "correct_reward": 0.15,
+    "incorrect_penalty": -0.10,
+    "consensus_correct_reward": 0.10,
+    "consensus_incorrect_penalty": -0.05,
+    "fast_latency_threshold": 10.0,
+    "slow_latency_threshold": 60.0,
+    "speed_bonus": 0.05,
+    "speed_penalty": -0.05,
+    "max_reward": 0.5,
+    "min_reward": -0.5
+  },
+  "answer_processing": {
+    "max_answer_length": 200,
+    "min_line_length": 10
+  },
+  "math_detection": {
+    "keywords": ["%", "percent", "calculate", "what is", "what's", "+", "-", "*", "/", "="],
+    "enable_calculation": true,
+    "calculation_tolerance": 0.01
+  },
+  "web_search": {
+    "enabled": true,
+    "factual_keywords": [
+      "tallest", "highest", "largest", "smallest", "longest", "shortest",
+      "first", "last", "oldest", "newest", "famous", "known for",
+      "located in", "capital of", "president of", "population of",
+      "when did", "who is", "what is", "where is"
+    ],
+    "max_results": 2
+  },
+  "prompt_formatting": {
+    "use_chat_format": true,
+    "chat_templates": {
+      "default": "<|user|>\n{query}\n<|assistant|>\n",
+      "math": "<|user|>\n{query}\nAnswer with just the number:\n<|assistant|>\n",
+      "generic": "Answer the following question: {query}\n\nAnswer:",
+      "generic_math": "Question: {query}\nAnswer (just the number):"
+    }
+  },
+  "router": {
+    "latency_weight": 0.7,
+    "fitness_weight": 0.3
+  }
+}
+

@@ -2,6 +2,7 @@
 import heapq
 from typing import List, Dict, Any
 from core.transformer_node import TransformerNode
+from utils.config_loader import config
 
 
 class ClusterRouter:
@@ -68,12 +69,14 @@ class ClusterRouter:
                 if len(all_nodes) <= redundancy:
                     assignments[chunk_id] = all_nodes
                 else:
-                    # Select nodes based on latency + fitness
+                    # Select nodes based on latency + fitness (using config weights)
+                    latency_weight = config.get('router', 'latency_weight', default=0.7)
+                    fitness_weight = config.get('router', 'fitness_weight', default=0.3)
                     scores = []
                     for node_id, node in self.nodes.items():
                         latency = self.node_latencies.get(node_id, 1.0)
                         fitness = node.fitness
-                        score = 0.7 * latency + 0.3 * (1 - fitness)
+                        score = latency_weight * latency + fitness_weight * (1 - fitness)
                         scores.append((score, node_id, node))
                     
                     scores.sort(key=lambda x: x[0])

@@ -4,6 +4,7 @@ import re
 from typing import Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import threading
+from utils.config_loader import config
 
 
 class DecoderService:
@@ -42,7 +43,7 @@ class DecoderService:
             print(f"Error loading decoder model: {e}")
             raise
     
-    def decode(self, embeddings: torch.Tensor, query: str = None, max_length: int = 256) -> str:
+    def decode(self, embeddings: torch.Tensor, query: str = None, max_length: Optional[int] = None) -> str:
         """
         Generate answer from processed embeddings using the original query.
         
@@ -54,11 +55,21 @@ class DecoderService:
         Args:
             embeddings: Processed embeddings tensor of shape [seq_len, hidden_dim]
             query: Original query text (preferred over reconstruction)
-            max_length: Maximum new tokens to generate
+            max_length: Maximum new tokens to generate (uses config default if None)
         
         Returns:
             Generated answer text
         """
+        # Get config values
+        if max_length is None:
+            max_length = config.get('generation', 'max_tokens', default=256)
+        math_keywords = config.get('math_detection', 'keywords', default=[])
+        math_temp = config.get('generation', 'math_temperature', default=0.3)
+        default_temp = config.get('generation', 'default_temperature', default=0.7)
+        top_k = config.get('generation', 'top_k', default=10)
+        use_chat_format = config.get('prompt_formatting', 'use_chat_format', default=True)
+        templates = config.get('prompt_formatting', 'chat_templates', default={})
+        
         with self.lock:
             embeddings = embeddings.to(self.device)
             
@@ -84,36 +95,30 @@ class DecoderService:
                     print(f"[Decoder] Reconstructed query: {query_text[:60]}...")
                 
                 # Step 2: Format as instruction prompt for answer generation
-                # Detect if this is a math question and use a more direct format
-                is_math = any(keyword in query_text.lower() for keyword in ['%', 'percent', 'calculate', 'what is', 'what\'s', '+', '-', '*', '/', '='])
+                # Detect if this is a math question using config keywords
+                is_math = any(keyword in query_text.lower() for keyword in math_keywords)
                 
-                if "TinyLlama" in self.model_name or "tinyllama" in self.model_name.lower():
-                    # TinyLlama chat format
-                    if is_math:
-                        # For math, ask for just the number
-                        prompt = f"<|user|>\n{query_text}\nAnswer with just the number:\n<|assistant|>\n"
-                    else:
-                        prompt = f"<|user|>\n{query_text}\n<|assistant|>\n"
+                # Use config-based prompt formatting
+                if use_chat_format:
+                    template_key = 'math' if is_math else 'default'
+                    template = templates.get(template_key, templates.get('default', '<|user|>\n{query}\n<|assistant|>\n'))
                 else:
-                    # Generic instruction format
-                    if is_math:
-                        prompt = f"Question: {query_text}\nAnswer (just the number):"
-                    else:
-                        prompt = f"Answer the following question: {query_text}\n\nAnswer:"
+                    template_key = 'generic_math' if is_math else 'generic'
+                    template = templates.get(template_key, templates.get('generic', 'Answer the following question: {query}\n\nAnswer:'))
                 
+                prompt = template.format(query=query_text)
                 print(f"[Decoder] Prompt: {prompt[:100]}...")
                 
                 # Step 3: Generate answer from the prompt
                 input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
                 
-                # Generate using the model
-                # Use lower temperature for math to get more deterministic results
-                gen_temperature = 0.3 if is_math else 0.7
+                # Generate using the model with config-based temperature
+                gen_temperature = math_temp if is_math else default_temp
                 generated_ids = self.model.generate(
                     input_ids,
                     max_new_tokens=max_length,
                     temperature=gen_temperature,
-                    top_k=10,
+                    top_k=top_k,
                     do_sample=True,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id

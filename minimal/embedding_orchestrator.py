@@ -11,6 +11,7 @@ from utils.embedding_service import EmbeddingService
 from utils.decoder_service import DecoderService
 from utils.embedding_assembler import EmbeddingAssembler
 from utils.web_search import WebSearchService
+from utils.config_loader import config
 
 
 class EmbeddingOrchestrator:
@@ -42,8 +43,9 @@ class EmbeddingOrchestrator:
         # Embedding assembler for progressive assembly
         self.assembler = EmbeddingAssembler()
         
-        # Web search service for factual queries
-        self.web_search = WebSearchService() if enable_web_search else None
+        # Web search service for factual queries (use config if not explicitly set)
+        web_search_enabled = enable_web_search if enable_web_search is not None else config.get('web_search', 'enabled', default=True)
+        self.web_search = WebSearchService() if web_search_enabled else None
     
     async def process_query(self, query: str, correct_answer: str = None) -> Dict[str, Any]:
         """
@@ -135,7 +137,8 @@ class EmbeddingOrchestrator:
                     search_context = ""
                     if self.web_search and self._needs_web_search(chunk):
                         print(f"[Orchestrator] Performing web search for chunk {chunk_id}...")
-                        search_context = self.web_search.get_search_context(chunk_text, max_results=2)
+                        max_results = config.get('web_search', 'max_results', default=2)
+                        search_context = self.web_search.get_search_context(chunk_text, max_results=max_results)
                         if search_context:
                             print(f"[Orchestrator] Found search results for {chunk_id}")
                             # Enhance chunk text with search context
@@ -201,9 +204,10 @@ class EmbeddingOrchestrator:
         aggregated_for_training = {}
         for chunk_id, result in aggregated.items():
             # For training, we need text answers - use decoded embeddings or consensus
+            default_confidence = config.get('defaults', 'default_confidence', default=0.85)
             aggregated_for_training[chunk_id] = {
                 'answer': final_answer,  # Use final answer for now
-                'confidence': result.get('confidence', 0.85),
+                'confidence': result.get('confidence', default_confidence),
                 'consensus': result.get('consensus', 0.0),
                 'all_responses': result.get('all_responses', [])
             }
@@ -273,26 +277,37 @@ class EmbeddingOrchestrator:
                 cleaned_lines.append(line)
         answer = ' '.join(cleaned_lines) if cleaned_lines else answer
         
+        # Get config values
+        math_keywords = config.get('math_detection', 'keywords', default=[])
+        enable_calculation = config.get('math_detection', 'enable_calculation', default=True)
+        calculation_tolerance = config.get('math_detection', 'calculation_tolerance', default=0.01)
+        max_answer_length = config.get('answer_processing', 'max_answer_length', default=200)
+        min_line_length = config.get('answer_processing', 'min_line_length', default=10)
+        
         # For math operations, format nicely and verify calculation
-        if chunk.get('operation') == 'MATH_OP' or any(kw in chunk.get('text', '').lower() for kw in ['%', 'percent', 'calculate', 'what is', 'what\'s']):
+        chunk_text_lower = chunk.get('text', '').lower()
+        is_math_op = chunk.get('operation') == 'MATH_OP' or any(kw in chunk_text_lower for kw in math_keywords)
+        
+        if is_math_op:
             # Get the chunk text (e.g., "what's 10% of 1000")
             chunk_text = chunk.get('text', '').strip()
             # Extract the math expression from chunk text
             math_expr = re.sub(r'^(what\'?s?|what is|calculate)\s+', '', chunk_text, flags=re.IGNORECASE)
             math_expr = math_expr.strip()
             
-            # Try to calculate the correct answer for percentage questions
+            # Try to calculate the correct answer for percentage questions (if enabled)
             calculated_result = None
-            percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)', chunk_text, re.IGNORECASE)
-            if percent_match:
-                percent = float(percent_match.group(1))
-                base = float(percent_match.group(2))
-                calculated_result = (percent / 100.0) * base
-                # Round to reasonable precision
-                if calculated_result == int(calculated_result):
-                    calculated_result = int(calculated_result)
-                else:
-                    calculated_result = round(calculated_result, 2)
+            if enable_calculation:
+                percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%\s*of\s*(\d+(?:\.\d+)?)', chunk_text, re.IGNORECASE)
+                if percent_match:
+                    percent = float(percent_match.group(1))
+                    base = float(percent_match.group(2))
+                    calculated_result = (percent / 100.0) * base
+                    # Round to reasonable precision
+                    if calculated_result == int(calculated_result):
+                        calculated_result = int(calculated_result)
+                    else:
+                        calculated_result = round(calculated_result, 2)
             
             # Extract the number from the answer
             numbers = re.findall(r'\b\d+(?:\.\d+)?\b', answer)
@@ -308,11 +323,12 @@ class EmbeddingOrchestrator:
                     result_number = match.group(1)
             
             # If we calculated the correct answer and it differs from what the model said, use our calculation
-            if calculated_result is not None:
+            if enable_calculation and calculated_result is not None:
                 try:
                     model_answer = float(result_number) if result_number else None
-                    # If model answer is wrong (more than 1% difference), use calculated answer
-                    if model_answer is None or abs(model_answer - calculated_result) > max(1, calculated_result * 0.01):
+                    # If model answer is wrong (beyond tolerance), use calculated answer
+                    tolerance = max(1, calculated_result * calculation_tolerance)
+                    if model_answer is None or abs(model_answer - calculated_result) > tolerance:
                         result_number = str(calculated_result)
                         print(f"[Orchestrator] Corrected math answer: {model_answer} -> {calculated_result}")
                 except (ValueError, TypeError):
@@ -344,14 +360,14 @@ class EmbeddingOrchestrator:
             if lines:
                 # Prefer lines that look like complete answers
                 for line in reversed(lines):
-                    if len(line) > 10 and not line.startswith(('Answer:', 'The answer')):
+                    if len(line) > min_line_length and not line.startswith(('Answer:', 'The answer')):
                         answer = line
                         break
                 else:
                     answer = lines[-1]
         
         # Extract first sentence if answer is too long
-        if len(answer) > 200:
+        if len(answer) > max_answer_length:
             sentences = answer.split('.')
             if sentences:
                 answer = sentences[0].strip() + '.'
@@ -371,13 +387,8 @@ class EmbeddingOrchestrator:
         chunk_text = chunk.get('text', '').lower()
         operation = chunk.get('operation', '').upper()
         
-        # Factual queries that benefit from web search
-        factual_keywords = [
-            'tallest', 'highest', 'largest', 'smallest', 'longest', 'shortest',
-            'first', 'last', 'oldest', 'newest', 'famous', 'known for',
-            'located in', 'capital of', 'president of', 'population of',
-            'when did', 'who is', 'what is', 'where is'
-        ]
+        # Get factual keywords from config
+        factual_keywords = config.get('web_search', 'factual_keywords', default=[])
         
         # Don't search for math operations
         if operation == 'MATH_OP':

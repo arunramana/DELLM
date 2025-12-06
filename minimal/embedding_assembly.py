@@ -4,6 +4,7 @@ import torch
 from typing import List, Dict, Any
 from core.transformer_node import TransformerNode
 from utils.embedding_assembler import EmbeddingAssembler
+from utils.config_loader import config
 
 
 class EmbeddingAssembly:
@@ -124,12 +125,15 @@ class EmbeddingAssembly:
         start = time.time()
         print(f"  [Assembly] Processing {node.node_id}...")
         
+        # Get timeout from config
+        node_timeout = config.get('timeouts', 'node_timeout_seconds', default=120.0)
+        
         # Run in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, node.process_embeddings, embeddings),
-                timeout=120.0  # 2 minute timeout per node
+                timeout=node_timeout
             )
             elapsed = time.time() - start
             print(f"  [Assembly] {node.node_id} completed in {elapsed:.1f}s")
@@ -137,13 +141,13 @@ class EmbeddingAssembly:
             result['node_id'] = node.node_id  # Ensure node_id is included
             return result
         except asyncio.TimeoutError:
-            print(f"  [Assembly] WARNING: {node.node_id} timed out after 120s")
+            print(f"  [Assembly] WARNING: {node.node_id} timed out after {node_timeout}s")
             # Return dummy embeddings on timeout
             dummy_embeddings = torch.zeros_like(embeddings)
             return {
                 'embeddings': dummy_embeddings,
                 'confidence': 0.0,
-                'latency': 120.0,
+                'latency': node_timeout,
                 'node_id': node.node_id,
                 'fitness': node.fitness,
                 'error': 'timeout',

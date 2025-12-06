@@ -4,6 +4,7 @@ import time
 from typing import Dict, Any, Optional
 from transformers import AutoModel
 import threading
+from utils.config_loader import config
 
 
 class TransformerNode:
@@ -26,7 +27,7 @@ class TransformerNode:
         self.num_layers = num_layers
         self.model = None
         self.lock = threading.Lock()
-        self.fitness = 0.7  # Initial fitness
+        self.fitness = config.get('defaults', 'initial_fitness', default=0.7)
         self._load_model()
     
     def _load_model(self):
@@ -93,8 +94,8 @@ class TransformerNode:
         print(f"  [Node {self.node_id}] Processed embeddings: {embeddings.shape} -> {processed_embeddings.shape}")
         print(f"  [Node {self.node_id}] Latency: {latency:.2f}s")
         
-        # Default confidence
-        confidence = 0.85
+        # Default confidence from config
+        confidence = config.get('defaults', 'default_confidence', default=0.85)
         
         return {
             "embeddings": processed_embeddings,

@@ -49,7 +49,8 @@ def initialize_minimal_network():
             model_name=model_name,
             device="cpu"  # Can be changed to "cuda" if GPU available
         )
-        node.fitness = node_config.get("fitness", 0.7)
+        from utils.config_loader import config
+        node.fitness = node_config.get("fitness", config.get('defaults', 'initial_fitness', default=0.7))
         nodes[node_id] = node
     
     print(f"Created {len(nodes)} transformer nodes")
