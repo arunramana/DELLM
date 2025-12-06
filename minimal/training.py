@@ -1,12 +1,13 @@
 """RL Training: Updates node fitness based on rewards."""
 from typing import List, Dict, Any
-from core.node import Node
+from core.transformer_node import TransformerNode
+from utils.config_loader import config
 
 
 class RLTrainer:
     """Reinforcement learning trainer for node fitness updates."""
     
-    def update_fitness(self, nodes_used: List[Node], aggregated: Dict[str, Dict[str, Any]], 
+    def update_fitness(self, nodes_used: List[TransformerNode], aggregated: Dict[str, Dict[str, Any]], 
                       correct_answer: str = None) -> Dict[str, float]:
         """
         Update node fitness based on performance.
@@ -30,32 +31,45 @@ class RLTrainer:
                 node_answer = resp.get('answer', '')
                 latency = resp.get('latency', 1.0)
                 
+                # Get config values
+                correct_reward = config.get('training', 'correct_reward', default=0.15)
+                incorrect_penalty = config.get('training', 'incorrect_penalty', default=-0.10)
+                consensus_correct_reward = config.get('training', 'consensus_correct_reward', default=0.10)
+                consensus_incorrect_penalty = config.get('training', 'consensus_incorrect_penalty', default=-0.05)
+                fast_threshold = config.get('training', 'fast_latency_threshold', default=10.0)
+                slow_threshold = config.get('training', 'slow_latency_threshold', default=60.0)
+                speed_bonus = config.get('training', 'speed_bonus', default=0.05)
+                speed_penalty = config.get('training', 'speed_penalty', default=-0.05)
+                max_reward = config.get('training', 'max_reward', default=0.5)
+                min_reward = config.get('training', 'min_reward', default=-0.5)
+                alpha = config.get('defaults', 'fitness_update_alpha', default=0.9)
+                beta = config.get('defaults', 'fitness_update_beta', default=0.1)
+                
                 # Calculate reward
                 if correct_answer:
                     # Compare with ground truth
                     is_correct = self._check_correctness(node_answer, correct_answer)
-                    reward = 0.15 if is_correct else -0.10  # Increased rewards
+                    reward = correct_reward if is_correct else incorrect_penalty
                 else:
                     # Use semantic similarity instead of exact match
                     is_correct = self._check_correctness(node_answer, consensus_answer)
-                    reward = 0.10 if is_correct else -0.05  # Increased rewards
+                    reward = consensus_correct_reward if is_correct else consensus_incorrect_penalty
                 
-                # Speed bonus (faster = better, adjusted for local models)
-                if latency < 10.0:  # Adjusted threshold for local models
-                    reward += 0.05
-                elif latency > 60.0:
-                    reward -= 0.05
+                # Speed bonus (faster = better)
+                if latency < fast_threshold:
+                    reward += speed_bonus
+                elif latency > slow_threshold:
+                    reward += speed_penalty
                 
-                # Update fitness: reward-based update (fixes the formula)
+                # Update fitness: reward-based update
                 node = next((n for n in nodes_used if n.node_id == node_id), None)
                 if node:
-                    # New formula: fitness increases when reward > 0
-                    # Clamp reward to [-0.5, 0.5] range
-                    reward = max(-0.5, min(0.5, reward))
-                    # Update: 0.9 * old + 0.1 * (old + reward)
+                    # Clamp reward to configured range
+                    reward = max(min_reward, min(max_reward, reward))
+                    # Update: alpha * old + beta * (old + reward)
                     # This way, positive reward increases fitness
-                    node.fitness = 0.9 * node.fitness + 0.1 * (node.fitness + reward)
-                    node.fitness = max(0.0, min(1.0, node.fitness))  # Clamp
+                    node.fitness = alpha * node.fitness + beta * (node.fitness + reward)
+                    node.fitness = max(0.0, min(1.0, node.fitness))  # Clamp to [0, 1]
                     updates[node_id] = node.fitness
         
         return updates

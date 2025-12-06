@@ -8,8 +8,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.node import Node
-from minimal.orchestrator import Orchestrator
+from core.transformer_node import TransformerNode
+from minimal.embedding_orchestrator import EmbeddingOrchestrator
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
@@ -32,34 +32,45 @@ class QueryRequest(BaseModel):
 
 
 def initialize_minimal_network():
-    """Initialize minimal network from topology."""
+    """Initialize minimal network from topology (embedding-based)."""
     print("Loading topology...")
     topology = load_topology()
     
-    # Create nodes
-    print("Creating nodes...")
+    # Create transformer nodes
+    print("Creating transformer nodes...")
     nodes = {}
     for node_id, node_config in topology["nodes"].items():
-        node = Node(
+        # Use model_name from config, or default to TinyLlama
+        model_name = node_config.get("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+        
+        print(f"Loading transformer node {node_id} model: {model_name}...")
+        node = TransformerNode(
             node_id=node_id,
-            model_path=node_config.get("model_path"),
-            model_name=node_config.get("model_name", "tinyllama-1.1b")
+            model_name=model_name,
+            device="cpu"  # Can be changed to "cuda" if GPU available
         )
-        node.fitness = node_config.get("fitness", 0.7)
+        from utils.config_loader import config
+        node.fitness = node_config.get("fitness", config.get('defaults', 'initial_fitness', default=0.7))
         nodes[node_id] = node
     
-    print(f"Created {len(nodes)} nodes")
+    print(f"Created {len(nodes)} transformer nodes")
     
-    # Create orchestrator
+    # Create embedding-based orchestrator
     superllm_config = topology["superllm"]
-    orchestrator = Orchestrator(
+    embedding_model = superllm_config.get("embedding_model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    decoder_model = superllm_config.get("decoder_model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    
+    orchestrator = EmbeddingOrchestrator(
         nodes=nodes,
-        synthesis_model_path=superllm_config.get("model_path")
+        embedding_model_name=embedding_model,
+        decoder_model_name=decoder_model,
+        device="cpu"
     )
     
     print("\n" + "="*50)
-    print("Minimal DELLM Network:")
-    print(f"  Nodes: {len(nodes)}")
+    print("Embedding-based DELLM Network:")
+    print(f"  Transformer Nodes: {len(nodes)}")
+    print(f"  Embedding Model: {embedding_model}")
     print("="*50 + "\n")
     
     return orchestrator
@@ -116,8 +127,7 @@ def cleanup_on_exit():
             orchestrator.close()
         except:
             pass
-    from utils.llm_client import cleanup_all_models
-    cleanup_all_models()
+    # Cleanup handled by orchestrator.close()
 
 
 def main():

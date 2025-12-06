@@ -1,13 +1,14 @@
 """Cluster Router: Routes chunks to nodes based on latency + fitness."""
 import heapq
 from typing import List, Dict, Any
-from core.node import Node
+from core.transformer_node import TransformerNode
+from utils.config_loader import config
 
 
 class ClusterRouter:
     """Routes query chunks to optimal nodes."""
     
-    def __init__(self, nodes: Dict[str, Node]):
+    def __init__(self, nodes: Dict[str, TransformerNode]):
         self.nodes = nodes
         # Track node latencies (updated from actual executions)
         self.node_latencies = {nid: 1.0 for nid in nodes.keys()}
@@ -16,7 +17,7 @@ class ClusterRouter:
         """Update node latency from actual execution."""
         self.node_latencies[node_id] = latency
     
-    def route(self, chunks: List[Dict[str, Any]], use_all_nodes: bool = True) -> Dict[str, List[Node]]:
+    def route(self, chunks: List[Dict[str, Any]], use_all_nodes: bool = True) -> Dict[str, List[TransformerNode]]:
         """
         Route chunks to nodes using all available compute power.
         
@@ -68,12 +69,14 @@ class ClusterRouter:
                 if len(all_nodes) <= redundancy:
                     assignments[chunk_id] = all_nodes
                 else:
-                    # Select nodes based on latency + fitness
+                    # Select nodes based on latency + fitness (using config weights)
+                    latency_weight = config.get('router', 'latency_weight', default=0.7)
+                    fitness_weight = config.get('router', 'fitness_weight', default=0.3)
                     scores = []
                     for node_id, node in self.nodes.items():
                         latency = self.node_latencies.get(node_id, 1.0)
                         fitness = node.fitness
-                        score = 0.7 * latency + 0.3 * (1 - fitness)
+                        score = latency_weight * latency + fitness_weight * (1 - fitness)
                         scores.append((score, node_id, node))
                     
                     scores.sort(key=lambda x: x[0])
