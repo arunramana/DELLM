@@ -1,10 +1,9 @@
 """Minimal DELLM implementation."""
-from minimal.orchestrator import Orchestrator
+from minimal.embedding_orchestrator import EmbeddingOrchestrator
 from minimal.decomposer import QueryDecomposer
 from minimal.router import ClusterRouter
-from minimal.assembly import StreamingAssembly
-from minimal.synthesis import TransformerSynthesis
+from minimal.embedding_assembly import EmbeddingAssembly
 from minimal.training import RLTrainer
 
-__all__ = ["Orchestrator", "QueryDecomposer", "ClusterRouter", "StreamingAssembly", "TransformerSynthesis", "RLTrainer"]
+__all__ = ["EmbeddingOrchestrator", "QueryDecomposer", "ClusterRouter", "EmbeddingAssembly", "RLTrainer"]
 

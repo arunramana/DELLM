@@ -1,12 +1,12 @@
 """RL Training: Updates node fitness based on rewards."""
 from typing import List, Dict, Any
-from core.node import Node
+from core.transformer_node import TransformerNode
 
 
 class RLTrainer:
     """Reinforcement learning trainer for node fitness updates."""
     
-    def update_fitness(self, nodes_used: List[Node], aggregated: Dict[str, Dict[str, Any]], 
+    def update_fitness(self, nodes_used: List[TransformerNode], aggregated: Dict[str, Dict[str, Any]], 
                       correct_answer: str = None) -> Dict[str, float]:
         """
         Update node fitness based on performance.

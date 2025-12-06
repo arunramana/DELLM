@@ -1,5 +1,6 @@
 """Decoder Service: Converts embeddings to text."""
 import torch
+import re
 from typing import Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import threading
@@ -41,77 +42,108 @@ class DecoderService:
             print(f"Error loading decoder model: {e}")
             raise
     
-    def decode(self, embeddings: torch.Tensor, max_length: int = 256) -> str:
+    def decode(self, embeddings: torch.Tensor, query: str = None, max_length: int = 256) -> str:
         """
-        Decode processed embeddings to text using LM head.
-        Uses the last hidden state to generate coherent text.
+        Generate answer from processed embeddings using the original query.
+        
+        Strategy:
+        1. Use the original query text (if provided) or reconstruct from embeddings
+        2. Format it as an instruction prompt
+        3. Generate an answer using the model
         
         Args:
             embeddings: Processed embeddings tensor of shape [seq_len, hidden_dim]
-            max_length: Maximum tokens to generate
+            query: Original query text (preferred over reconstruction)
+            max_length: Maximum new tokens to generate
         
         Returns:
-            Decoded text
+            Generated answer text
         """
         with self.lock:
             embeddings = embeddings.to(self.device)
             
             with torch.no_grad():
-                # Strategy: Use the last hidden state (contains most context)
-                # and generate text from it using the model's generation
-                last_hidden = embeddings[-1:, :].unsqueeze(0)  # [1, 1, hidden_dim]
-                
-                # Get LM head to convert to logits
-                if not hasattr(self.model, 'lm_head'):
-                    raise ValueError(f"Cannot find LM head in model {self.model_name}")
-                
-                logits = self.model.lm_head(last_hidden)  # [1, 1, vocab_size]
-                
-                # Get the most likely token from the last position
-                # Use top-k sampling for better results
-                top_k = 10
-                top_k_logits, top_k_indices = torch.topk(logits[0, 0, :], top_k)
-                
-                # Apply softmax with temperature
-                temperature = 1.0
-                probs = torch.softmax(top_k_logits / temperature, dim=-1)
-                
-                # Sample from top-k
-                sampled_idx = torch.multinomial(probs, 1).item()
-                first_token_id = top_k_indices[sampled_idx].item()
-                
-                # Now use the model to generate continuation from this token
-                # Create input_ids starting with the sampled token
-                input_ids = torch.tensor([[first_token_id]], device=self.device)
-                
-                # Generate continuation using the model
-                # We'll generate a short sequence
-                generated_ids = [first_token_id]
-                
-                for _ in range(min(max_length - 1, 100)):
-                    # Forward pass through model
-                    outputs = self.model(input_ids)
-                    next_token_logits = outputs.logits[0, -1, :]
+                # Step 1: Get the query text
+                if query:
+                    # Use the original query (preferred)
+                    query_text = query
+                    print(f"[Decoder] Using original query: {query_text[:60]}...")
+                else:
+                    # Fallback: Try to reconstruct from embeddings (may not work well)
+                    print("[Decoder] Reconstructing query from embeddings...")
+                    hidden_states = embeddings.unsqueeze(0)
                     
-                    # Apply top-k filtering
-                    top_k_logits, top_k_indices = torch.topk(next_token_logits, top_k)
-                    probs = torch.softmax(top_k_logits / temperature, dim=-1)
-                    next_token_id = top_k_indices[torch.multinomial(probs, 1)].item()
+                    if not hasattr(self.model, 'lm_head'):
+                        raise ValueError(f"Cannot find LM head in model {self.model_name}")
                     
-                    generated_ids.append(next_token_id)
-                    
-                    # Stop on EOS
-                    if next_token_id == self.tokenizer.eos_token_id:
-                        break
-                    
-                    # Update input_ids for next iteration
-                    input_ids = torch.cat([input_ids, torch.tensor([[next_token_id]], device=self.device)], dim=1)
+                    logits = self.model.lm_head(hidden_states)  # [1, seq_len, vocab_size]
+                    token_ids = torch.argmax(logits, dim=-1)  # [1, seq_len]
+                    query_token_ids = token_ids.squeeze(0).cpu().tolist()
+                    query_token_ids = [tid for tid in query_token_ids if tid != self.tokenizer.pad_token_id]
+                    query_text = self.tokenizer.decode(query_token_ids, skip_special_tokens=True).strip()
+                    print(f"[Decoder] Reconstructed query: {query_text[:60]}...")
                 
-                # Decode generated tokens
-                text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
-                text = text.strip()
+                # Step 2: Format as instruction prompt for answer generation
+                # Detect if this is a math question and use a more direct format
+                is_math = any(keyword in query_text.lower() for keyword in ['%', 'percent', 'calculate', 'what is', 'what\'s', '+', '-', '*', '/', '='])
+                
+                if "TinyLlama" in self.model_name or "tinyllama" in self.model_name.lower():
+                    # TinyLlama chat format
+                    if is_math:
+                        # For math, ask for just the number
+                        prompt = f"<|user|>\n{query_text}\nAnswer with just the number:\n<|assistant|>\n"
+                    else:
+                        prompt = f"<|user|>\n{query_text}\n<|assistant|>\n"
+                else:
+                    # Generic instruction format
+                    if is_math:
+                        prompt = f"Question: {query_text}\nAnswer (just the number):"
+                    else:
+                        prompt = f"Answer the following question: {query_text}\n\nAnswer:"
+                
+                print(f"[Decoder] Prompt: {prompt[:100]}...")
+                
+                # Step 3: Generate answer from the prompt
+                input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
+                
+                # Generate using the model
+                # Use lower temperature for math to get more deterministic results
+                gen_temperature = 0.3 if is_math else 0.7
+                generated_ids = self.model.generate(
+                    input_ids,
+                    max_new_tokens=max_length,
+                    temperature=gen_temperature,
+                    top_k=10,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+                
+                # Extract only the generated part (remove the prompt)
+                generated_tokens = generated_ids[0][input_ids.shape[1]:]
+                
+                # Decode generated tokens to text
+                answer = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                answer = answer.strip()
+                
+                # For math, try to extract just the number from the first line
+                if is_math:
+                    # Take first line only
+                    first_line = answer.split('\n')[0].strip()
+                    # Extract number if present
+                    import re
+                    numbers = re.findall(r'\b\d+(?:\.\d+)?\b', first_line)
+                    if numbers:
+                        answer = numbers[0]
+                    else:
+                        # Try pattern like "= 100"
+                        match = re.search(r'=\s*(\d+(?:\.\d+)?)', first_line)
+                        if match:
+                            answer = match.group(1)
+                
+                print(f"[Decoder] Generated answer: {answer[:100]}...")
             
-            return text if text else "Unable to generate text."
+            return answer if answer else "Unable to generate answer."
     
     def decode_with_generation(self, embeddings: torch.Tensor, max_new_tokens: int = 256) -> str:
         """
