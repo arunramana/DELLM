@@ -1,6 +1,6 @@
-# DELLM - Distributed Embedding-based LLM System
+# DELLM - Distributed Evolutionary LLM
 
-Minimal working prototype of a distributed LLM system using embedding-based processing with HuggingFace `transformers`.
+Minimal working prototype of a distributed evolutionary LLM system using embedding-based processing with HuggingFace `transformers`. The system evolves node fitness through reinforcement learning, enabling continuous improvement without model retraining.
 
 ## Quick Start
 

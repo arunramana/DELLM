@@ -4,7 +4,7 @@ import json
 
 
 def query_server(query: str, base_url: str = "http://localhost:8000", timeout: int = 300):
-    """Query the minimal DELLM server."""
+    """Query the minimal DELLM (Distributed Evolutionary LLM) server."""
     print(f"Sending query to {base_url}...")
     print(f"Query: {query}")
     print(f"Timeout: {timeout}s (this may take a while with local models)...")

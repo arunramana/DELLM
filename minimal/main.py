@@ -1,4 +1,4 @@
-"""Minimal DELLM: Main entry point following minimal plan."""
+"""Minimal DELLM (Distributed Evolutionary LLM): Main entry point."""
 import json
 import sys
 import atexit
