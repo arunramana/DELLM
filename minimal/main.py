@@ -33,8 +33,12 @@ class QueryRequest(BaseModel):
 
 def initialize_minimal_network():
     """Initialize minimal network from topology (embedding-based)."""
-    print("Loading topology...")
+    import sys
+    print("Loading topology...", flush=True)
+    sys.stdout.flush()
     topology = load_topology()
+    print(f"✓ Topology loaded: {len(topology['nodes'])} nodes configured", flush=True)
+    sys.stdout.flush()
     
     # Create transformer nodes
     print("Creating transformer nodes...")
@@ -43,12 +47,16 @@ def initialize_minimal_network():
         # Use model_name from config, or default to TinyLlama
         model_name = node_config.get("model_name", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
         
-        print(f"Loading transformer node {node_id} model: {model_name}...")
+        print(f"Loading transformer node {node_id} model: {model_name} (this may take 1-2 minutes)...")
+        import time
+        start = time.time()
         node = TransformerNode(
             node_id=node_id,
             model_name=model_name,
             device="cpu"  # Can be changed to "cuda" if GPU available
         )
+        elapsed = time.time() - start
+        print(f"  ✓ Node {node_id} loaded in {elapsed:.1f}s")
         from utils.config_loader import config
         node.fitness = node_config.get("fitness", config.get('defaults', 'initial_fitness', default=0.7))
         nodes[node_id] = node
@@ -132,8 +140,11 @@ def cleanup_on_exit():
 
 def main():
     """Main entry point."""
+    import sys
     global orchestrator
-    print("Initializing Minimal DELLM...")
+    print("Initializing Minimal DELLM...", flush=True)
+    print("NOTE: Model loading can take 2-5 minutes on CPU. Please be patient...", flush=True)
+    sys.stdout.flush()
     
     # Register cleanup on exit
     atexit.register(cleanup_on_exit)
@@ -141,9 +152,14 @@ def main():
     orchestrator = initialize_minimal_network()
     initialize_orchestrator(orchestrator)
     
-    print("Starting API server on http://localhost:8000")
+    print("\n" + "="*60, flush=True)
+    print("✓ Server ready!", flush=True)
+    print("Starting API server on http://localhost:8000", flush=True)
+    print("="*60 + "\n", flush=True)
+    sys.stdout.flush()
+    
     try:
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:

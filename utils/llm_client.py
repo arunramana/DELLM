@@ -25,7 +25,8 @@ class LLMClient:
     """LLM client supporting local models via llama-cpp-python or mock responses."""
     
     def __init__(self, model_path: Optional[str] = None, model_name: str = "mock", 
-                 api_key: Optional[str] = None, n_ctx: int = 2048, n_threads: int = 4):
+                 api_key: Optional[str] = None, n_ctx: int = 2048, n_threads: int = 4,
+                 n_gpu_layers: int = -1):
         """
         Initialize LLM client.
         
@@ -35,12 +36,14 @@ class LLMClient:
             api_key: Not used for local models, kept for compatibility
             n_ctx: Context window size
             n_threads: Number of threads for inference
+            n_gpu_layers: Number of layers to offload to GPU (-1 = all layers, 0 = CPU only)
         """
         self.model_path = model_path
         self.model_name = model_name
         self.n_ctx = n_ctx
         # Reduce threads when used in parallel to avoid conflicts
         self.n_threads = 1 if n_threads > 1 else n_threads  # Use 1 thread for thread safety
+        self.n_gpu_layers = n_gpu_layers
         self.llm = None
         self.model_type = "chat"  # Assume chat models by default
         
@@ -69,6 +72,7 @@ class LLMClient:
                         model_path=model_path,
                         n_ctx=n_ctx,
                         n_threads=self.n_threads,  # Use reduced thread count
+                        n_gpu_layers=self.n_gpu_layers,  # GPU acceleration
                         verbose=False,
                         chat_format="llama-3" if "llama-3" in model_path.lower() else None
                     )
@@ -78,6 +82,7 @@ class LLMClient:
                         model_path=model_path,
                         n_ctx=n_ctx,
                         n_threads=self.n_threads,  # Use reduced thread count
+                        n_gpu_layers=self.n_gpu_layers,  # GPU acceleration
                         verbose=False
                     )
                 print(f"Model loaded successfully: {model_path}")

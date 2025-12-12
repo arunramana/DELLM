@@ -7,10 +7,11 @@
   },
   "generation": {
     "math_temperature": 0.3,
-    "default_temperature": 0.7,
-    "top_k": 10,
-    "max_tokens": 256,
-    "chunk_max_tokens": 128
+    "default_temperature": 0.8,
+    "top_k": 50,
+    "max_tokens": 512,
+    "chunk_max_tokens": 256,
+    "use_fast_decode": false
   },
   "timeouts": {
     "node_timeout_seconds": 120.0,
@@ -26,14 +27,22 @@
     "speed_bonus": 0.05,
     "speed_penalty": -0.05,
     "max_reward": 0.5,
-    "min_reward": -0.5
+    "min_reward": -0.5,
+    "enable_online_training": true,
+    "learning_rate": 1e-5,
+    "use_lora": false,
+    "min_quality_for_training": 0.0,
+    "answer_quality_method": "semantic_similarity",
+    "keep_models_on_gpu": false,
+    "use_mixed_precision": true,
+    "use_torch_compile": false
   },
   "answer_processing": {
-    "max_answer_length": 200,
-    "min_line_length": 10
+    "max_answer_length": 2000,
+    "min_line_length": 5
   },
   "math_detection": {
-    "keywords": ["%", "percent", "calculate", "what is", "what's", "+", "-", "*", "/", "="],
+    "keywords": ["%", "percent", "calculate", "+", "-", "*", "×", "/", "÷", "="],
     "enable_calculation": true,
     "calculation_tolerance": 0.01
   },
@@ -48,11 +57,11 @@
     "max_results": 2
   },
   "prompt_formatting": {
-    "use_chat_format": true,
+    "use_chat_format": false,
     "chat_templates": {
       "default": "<|user|>\n{query}\n<|assistant|>\n",
       "math": "<|user|>\n{query}\nAnswer with just the number:\n<|assistant|>\n",
-      "generic": "Answer the following question: {query}\n\nAnswer:",
+      "generic": "### Question: {query}\n\n### Detailed Answer:",
       "generic_math": "Question: {query}\nAnswer (just the number):"
     }
   },

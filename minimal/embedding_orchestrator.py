@@ -7,6 +7,7 @@ from minimal.decomposer import QueryDecomposer
 from minimal.router import ClusterRouter
 from minimal.embedding_assembly import EmbeddingAssembly
 from minimal.training import RLTrainer
+from minimal.query_classifier import OperationType
 from utils.embedding_service import EmbeddingService
 from utils.decoder_service import DecoderService
 from utils.embedding_assembler import EmbeddingAssembler
@@ -32,13 +33,16 @@ class EmbeddingOrchestrator:
         self.decomposer = QueryDecomposer()
         self.router = ClusterRouter(nodes)
         self.assembly = EmbeddingAssembly()
-        self.trainer = RLTrainer()
         self.nodes = nodes
         
         # Initialize embedding and decoder services
-        self.embedding_service = EmbeddingService(embedding_model_name, device)
+        # Keep services on CPU to avoid GPU memory conflicts with multiple nodes
+        self.embedding_service = EmbeddingService(embedding_model_name, device, force_cpu=True)
+        
+        # Initialize trainer with embedding service for semantic similarity
+        self.trainer = RLTrainer(embedding_service=self.embedding_service)
         decoder_model = decoder_model_name or embedding_model_name
-        self.decoder_service = DecoderService(decoder_model, device)
+        self.decoder_service = DecoderService(decoder_model, device, force_cpu=True)
         
         # Embedding assembler for progressive assembly
         self.assembler = EmbeddingAssembler()
@@ -57,54 +61,32 @@ class EmbeddingOrchestrator:
         import time
         start_time = time.time()
         
-        print(f"[Orchestrator] Processing query: {query[:60]}...")
-        
         # Step 1: Decompose
         num_nodes = len(self.nodes)
-        print(f"[Orchestrator] Step 1: Decomposing query (target: {num_nodes} chunks)...")
         chunks = self.decomposer.decompose(query, target_chunks=num_nodes)
-        print(f"[Orchestrator] Decomposed into {len(chunks)} chunk(s)")
         
         # Step 2: Generate embeddings for each chunk
-        print("[Orchestrator] Step 2: Generating embeddings for chunks...")
-        embed_start = time.time()
         chunk_embeddings = {}
         for chunk in chunks:
             chunk_id = chunk['chunk_id']
             chunk_text = chunk['text']
             embeddings = self.embedding_service.encode(chunk_text)
             chunk_embeddings[chunk_id] = embeddings
-            print(f"  [Orchestrator] Generated embeddings for {chunk_id}: {embeddings.shape}")
-        embed_time = time.time() - embed_start
-        print(f"[Orchestrator] Embedding generation completed in {embed_time:.1f}s")
         
         # Step 3: Route
-        print("[Orchestrator] Step 3: Routing to nodes...")
         assignments = self.router.route(chunks, use_all_nodes=True)
-        total_nodes = sum(len(nodes) for nodes in assignments.values())
-        unique_nodes = set()
-        for nodes_list in assignments.values():
-            unique_nodes.update(n.node_id for n in nodes_list)
-        print(f"[Orchestrator] Routed to {total_nodes} node assignment(s) across {len(unique_nodes)} unique node(s)")
         
-        # Step 4: Process embeddings through nodes (progressive)
-        print("[Orchestrator] Step 4: Processing embeddings through nodes...")
-        node_start = time.time()
-        
+        # Step 4: Process embeddings through nodes
         aggregated = {}
         assembler = EmbeddingAssembler()
         
         def progressive_callback(chunk_id: str, result: Dict[str, Any]):
             """Called when each chunk completes."""
             nonlocal aggregated, assembler
-            
             aggregated[chunk_id] = result
             processed_embeddings = result.get('embeddings')
-            
             if processed_embeddings is not None:
-                # Add to assembler
                 assembler.add_chunk(chunk_id, processed_embeddings)
-                print(f"[Orchestrator] Added {chunk_id} to assembler ({assembler.get_chunk_count()}/{len(chunks)} chunks)")
         
         # Collect processed embeddings
         aggregated = await self.assembly.collect_embeddings(
@@ -112,11 +94,8 @@ class EmbeddingOrchestrator:
             chunk_embeddings, 
             progressive_callback
         )
-        node_time = time.time() - node_start
-        print(f"[Orchestrator] Node processing completed in {node_time:.1f}s")
         
         # Step 5: Decode each chunk separately to get answers in order
-        print("[Orchestrator] Step 5: Decoding chunks to text (in order)...")
         decode_start = time.time()
         
         # Sort chunks by their position to maintain order
@@ -131,44 +110,48 @@ class EmbeddingOrchestrator:
                 # Get processed embeddings for this chunk
                 processed_embeddings = aggregated[chunk_id].get('embeddings')
                 if processed_embeddings is not None:
-                    print(f"[Orchestrator] Decoding chunk {chunk_id}: {chunk_text[:50]}...")
-                    
                     # Check if this chunk needs web search (factual queries)
                     search_context = ""
                     if self.web_search and self._needs_web_search(chunk):
-                        print(f"[Orchestrator] Performing web search for chunk {chunk_id}...")
                         max_results = config.get('web_search', 'max_results', default=2)
                         search_context = self.web_search.get_search_context(chunk_text, max_results=max_results)
                         if search_context:
-                            print(f"[Orchestrator] Found search results for {chunk_id}")
-                            # Enhance chunk text with search context
                             enhanced_query = f"{chunk_text}\n\nContext from web search:\n{search_context}"
                         else:
                             enhanced_query = chunk_text
                     else:
                         enhanced_query = chunk_text
                     
-                    # Decode this chunk's embeddings using the chunk text (with optional search context)
+                    # Decode this chunk's embeddings
+                    # Use fast decode only for math/factual queries, slow generation for creative tasks
+                    operation_type = chunk.get('operation', 'unknown')
+                    use_fast = (operation_type in [OperationType.MATH_OP.value, OperationType.FACTUAL_OP.value])
+                    
+                    # Use longer max_length for generation tasks
+                    max_length = 1000 if operation_type == OperationType.GENERATION_OP.value else 128
+                    
                     chunk_answer = self.decoder_service.decode(
                         processed_embeddings, 
                         query=enhanced_query,
-                        max_length=128  # Shorter for individual chunks
+                        max_length=max_length,
+                        use_fast_decode=use_fast
                     )
                     chunk_answers.append(chunk_answer)
-                    print(f"[Orchestrator] Chunk {chunk_id} answer: {chunk_answer[:80]}...")
                 else:
-                    print(f"[Orchestrator] WARNING: No embeddings for chunk {chunk_id}")
                     chunk_answers.append("")
             else:
-                print(f"[Orchestrator] WARNING: Chunk {chunk_id} not in aggregated results")
                 chunk_answers.append("")
         
-        # Clean and format answers
+        # Clean and format answers, and store them in aggregated results
         cleaned_answers = []
         for i, chunk in enumerate(sorted_chunks):
+            chunk_id = chunk['chunk_id']
             if i < len(chunk_answers) and chunk_answers[i]:
                 cleaned = self._clean_answer(chunk_answers[i], chunk)
                 cleaned_answers.append(cleaned)
+                # Store the decoded answer in aggregated for client access
+                if chunk_id in aggregated:
+                    aggregated[chunk_id]['answer'] = cleaned
         
         # Combine answers in order with better formatting
         if len(cleaned_answers) == 1:
@@ -178,73 +161,40 @@ class EmbeddingOrchestrator:
         else:
             final_answer = "Unable to generate answer."
         
-        decode_time = time.time() - decode_start
-        print(f"[Orchestrator] Decoding completed in {decode_time:.1f}s")
-        
-        # Print summary
-        print("\n" + "="*70)
-        print("[Orchestrator] DATA SUMMARY:")
-        print("="*70)
-        print(f"\nOriginal Query: {query}")
-        print(f"\nDecomposition ({len(chunks)} chunks):")
-        for chunk in chunks:
-            print(f"  {chunk['chunk_id']}: {chunk['operation']} - {chunk['text']}")
-        print(f"\nFinal Answer:")
-        print(f"  {final_answer}")
-        print("\n" + "="*70)
-        
-        # Step 7: Training (update fitness)
-        print("[Orchestrator] Step 7: Updating fitness...")
+        # Step 7: Training (update fitness + online training)
         nodes_used = []
         for nodes_list in assignments.values():
             nodes_used.extend(nodes_list)
         nodes_used = list({n.node_id: n for n in nodes_used}.values())
         
-        # Convert aggregated to format expected by trainer (with 'answer' field)
-        aggregated_for_training = {}
-        for chunk_id, result in aggregated.items():
-            # For training, we need text answers - use decoded embeddings or consensus
-            default_confidence = config.get('defaults', 'default_confidence', default=0.85)
-            aggregated_for_training[chunk_id] = {
-                'answer': final_answer,  # Use final answer for now
-                'confidence': result.get('confidence', default_confidence),
-                'consensus': result.get('consensus', 0.0),
-                'all_responses': result.get('all_responses', [])
-            }
+        # Update fitness based on final answer quality
+        fitness_updates = self.trainer.update_fitness(
+            nodes_used, final_answer, correct_answer, assignments, aggregated
+        )
         
-        fitness_updates = self.trainer.update_fitness(nodes_used, aggregated_for_training, correct_answer)
-        
-        print(f"Fitness Updates:")
-        for node_id, fitness in sorted(fitness_updates.items()):
-            print(f"  {node_id}: {fitness:.3f}")
+        # Online training (if enabled and correct_answer provided)
+        quality_score = 0.0
+        if correct_answer and config.get('training', 'enable_online_training', default=True):
+            quality_score = self.trainer.calculate_final_answer_quality(final_answer, correct_answer)
+            min_quality = config.get('training', 'min_quality_for_training', default=0.0)
+            
+            if quality_score >= min_quality:
+                self._trigger_online_training(nodes_used, assignments, aggregated, chunk_embeddings, 
+                                             quality_score, correct_answer, chunks)
         
         total_time = time.time() - start_time
-        print(f"\n[Orchestrator] Query processing completed in {total_time:.1f}s")
         
-        # Calculate total embedding shape from aggregated chunks
-        total_embedding_shape = None
-        if aggregated:
-            # Sum up the sequence lengths from all chunks
-            total_seq_len = sum(
-                result.get('embeddings', torch.tensor([])).shape[0] 
-                for result in aggregated.values() 
-                if result.get('embeddings') is not None
-            )
-            if total_seq_len > 0:
-                # Get hidden dim from first chunk
-                first_emb = next((r.get('embeddings') for r in aggregated.values() if r.get('embeddings') is not None), None)
-                if first_emb is not None:
-                    hidden_dim = first_emb.shape[1]
-                    total_embedding_shape = [total_seq_len, hidden_dim]
-        
+        # Return with quality score for tracking
         return {
             'answer': final_answer,
             'chunks': chunks,
             'assignments': {cid: [n.node_id for n in nodes] for cid, nodes in assignments.items()},
             'aggregated': aggregated,
             'fitness_updates': fitness_updates,
-            'embedding_shape': total_embedding_shape
+            'quality_score': quality_score,
+            'processing_time': total_time
         }
+        
     
     def _clean_answer(self, answer: str, chunk: Dict[str, Any]) -> str:
         """
@@ -275,7 +225,13 @@ class EmbeddingOrchestrator:
                 continue
             if line:
                 cleaned_lines.append(line)
-        answer = ' '.join(cleaned_lines) if cleaned_lines else answer
+        
+        # For generation tasks, preserve newlines; for others join with spaces
+        operation_type = chunk.get('operation', 'unknown')
+        if operation_type == 'GENERATION_OP':
+            answer = '\n'.join(cleaned_lines) if cleaned_lines else answer
+        else:
+            answer = ' '.join(cleaned_lines) if cleaned_lines else answer
         
         # Get config values
         math_keywords = config.get('math_detection', 'keywords', default=[])
@@ -285,8 +241,8 @@ class EmbeddingOrchestrator:
         min_line_length = config.get('answer_processing', 'min_line_length', default=10)
         
         # For math operations, format nicely and verify calculation
-        chunk_text_lower = chunk.get('text', '').lower()
-        is_math_op = chunk.get('operation') == 'MATH_OP' or any(kw in chunk_text_lower for kw in math_keywords)
+        # Use the operation type from the chunk (already classified by hybrid classifier)
+        is_math_op = chunk.get('operation') == 'MATH_OP'
         
         if is_math_op:
             # Get the chunk text (e.g., "what's 10% of 1000")
@@ -330,7 +286,6 @@ class EmbeddingOrchestrator:
                     tolerance = max(1, calculated_result * calculation_tolerance)
                     if model_answer is None or abs(model_answer - calculated_result) > tolerance:
                         result_number = str(calculated_result)
-                        print(f"[Orchestrator] Corrected math answer: {model_answer} -> {calculated_result}")
                 except (ValueError, TypeError):
                     # If we can't parse model answer, use calculated
                     result_number = str(calculated_result)
@@ -353,9 +308,9 @@ class EmbeddingOrchestrator:
         for pattern in verbose_patterns:
             answer = re.sub(pattern, '', answer, flags=re.IGNORECASE)
         
-        # Remove redundant repetition (e.g., "10% of 1,000 is: 10% of 1,000 = 100")
-        # Take the last meaningful line if multiple lines
-        if '\n' in answer:
+        # For generation tasks, keep the full multi-line answer
+        # For other tasks, take the last meaningful line if multiple lines
+        if operation_type != 'GENERATION_OP' and '\n' in answer:
             lines = [l.strip() for l in answer.split('\n') if l.strip()]
             if lines:
                 # Prefer lines that look like complete answers
@@ -373,6 +328,113 @@ class EmbeddingOrchestrator:
                 answer = sentences[0].strip() + '.'
         
         return answer.strip()
+    
+    def _trigger_online_training(self, nodes_used, assignments, aggregated, chunk_embeddings,
+                                quality_score, correct_answer, chunks):
+        """Trigger online training for nodes."""
+        learning_rate = config.get('training', 'learning_rate', default=1e-5)
+        
+        # Generate target embeddings from correct answer
+        # For multi-chunk queries, split correct answer
+        correct_chunks = correct_answer.split(' and ')
+        if len(correct_chunks) < len(chunks):
+            # If fewer chunks than queries, use full answer for each
+            correct_chunks = [correct_answer] * len(chunks)
+        
+        # Sort chunks to match order
+        sorted_chunks = sorted(chunks, key=lambda c: c['chunk_id'])
+        
+        trained_count = 0
+        for i, chunk in enumerate(sorted_chunks):
+            chunk_id = chunk['chunk_id']
+            
+            if chunk_id not in aggregated:
+                continue
+            
+            result = aggregated[chunk_id]
+            processed_emb = result.get('embeddings')
+            input_emb = chunk_embeddings.get(chunk_id)
+            
+            if processed_emb is None or input_emb is None:
+                continue
+            
+            # Get node that processed this chunk (winner from consensus)
+            all_responses = result.get('all_responses', [])
+            if not all_responses:
+                continue
+            
+            # Find winner node
+            winner_node_id = None
+            max_weight = 0.0
+            for resp in all_responses:
+                node_id = resp.get('node_id')
+                node = next((n for n in nodes_used if n.node_id == node_id), None)
+                if node:
+                    weight = node.fitness * resp.get('confidence', 0.85)
+                    if weight > max_weight:
+                        max_weight = weight
+                        winner_node_id = node_id
+            
+            if not winner_node_id:
+                continue
+            
+            node = next((n for n in nodes_used if n.node_id == winner_node_id), None)
+            if not node:
+                continue
+            
+            # Enable training if not already enabled
+            if not hasattr(node, 'training_enabled') or not node.training_enabled:
+                node.enable_training(learning_rate)
+            
+            # Generate target embeddings from correct answer chunk
+            target_text = correct_chunks[i] if i < len(correct_chunks) else correct_answer
+            target_embeddings = self.embedding_service.encode(target_text)
+            
+            # Process target through transformer to get processed target
+            # Use the node's full model forward pass instead of layer-by-layer
+            # This ensures proper handling of position embeddings
+            with torch.no_grad():
+                # Use model_device (where model actually is) not node.device (target device)
+                compute_device = node.model_device
+                target_hidden = target_embeddings.unsqueeze(0).to(compute_device)
+                
+                # Convert to same dtype as model (handle FP16 if mixed precision is enabled)
+                if node.use_mixed_precision and compute_device == "cuda":
+                    target_hidden = target_hidden.half()
+                
+                # Generate position_ids on the correct device
+                seq_len = target_hidden.shape[1]
+                position_ids = torch.arange(0, seq_len, dtype=torch.long, device=compute_device).unsqueeze(0)
+                
+                # Use the model's forward method properly
+                if node.is_llama:
+                    if hasattr(node.model, 'model'):
+                        llama_model = node.model.model
+                    else:
+                        llama_model = node.model
+                    
+                    outputs = llama_model(
+                        inputs_embeds=target_hidden,
+                        position_ids=position_ids,
+                        output_hidden_states=True,
+                        return_dict=True
+                    )
+                    processed_target = outputs.last_hidden_state.squeeze(0)
+                else:
+                    # For non-Llama architectures
+                    for layer in node.transformer_layers:
+                        try:
+                            target_hidden = layer(target_hidden, position_ids=position_ids)[0]
+                        except TypeError:
+                            target_hidden = layer(target_hidden)[0]
+                    processed_target = target_hidden.squeeze(0)
+            
+            # Train node
+            try:
+                loss = node.train_step(input_emb, processed_target, quality_weight=quality_score)
+                trained_count += 1
+            except Exception as e:
+                pass  # Silent training errors
     
     def _needs_web_search(self, chunk: Dict[str, Any]) -> bool:
         """

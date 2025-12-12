@@ -41,8 +41,21 @@ def display_result(result: dict):
     print("QUERY RESULT")
     print("="*70)
     
-    print(f"\nAnswer: {result.get('answer', 'N/A')}")
+    # Display the full aggregated answer
+    print("\n" + "="*70)
+    print("FULL ANSWER")
+    print("="*70)
+    aggregated = result.get('aggregated', {})
+    if aggregated:
+        for chunk_id, agg in aggregated.items():
+            full_answer = agg.get('answer', 'N/A')
+            print(f"\n{full_answer}")
+            print(f"\nConsensus: {agg.get('consensus', 0.0):.2%}")
+    else:
+        print(f"\n{result.get('answer', 'N/A')}")
+    print("="*70)
     
+    # Show trace information
     print(f"\nDecomposition:")
     for chunk in result.get('chunks', []):
         print(f"  {chunk['chunk_id']}: {chunk['operation']} - {chunk['text']}")
@@ -50,11 +63,6 @@ def display_result(result: dict):
     print(f"\nRouting:")
     for chunk_id, node_ids in result.get('assignments', {}).items():
         print(f"  {chunk_id} -> {node_ids}")
-    
-    print(f"\nAggregated Results:")
-    for chunk_id, agg in result.get('aggregated', {}).items():
-        print(f"  {chunk_id}: {agg.get('answer', 'N/A')[:60]}...")
-        print(f"    Consensus: {agg.get('consensus', 0.0):.2%}")
     
     print(f"\nFitness Updates:")
     for node_id, fitness in result.get('fitness_updates', {}).items():

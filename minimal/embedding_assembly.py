@@ -52,20 +52,9 @@ class EmbeddingAssembly:
     async def _process_chunk(self, chunk_id: str, nodes: List[TransformerNode], 
                             embeddings: torch.Tensor) -> tuple:
         """Process a single chunk with multiple nodes."""
-        print(f"\n  [Assembly] Processing chunk {chunk_id}: embeddings shape {embeddings.shape}")
-        print(f"  [Assembly] Sending to {len(nodes)} node(s): {[n.node_id for n in nodes]}")
-        
         # Execute all nodes in parallel
         tasks = [self._node_process(node, embeddings) for node in nodes]
         responses = await asyncio.gather(*tasks)
-        
-        # Log all responses
-        print(f"\n  [Assembly] Chunk {chunk_id} - All node responses:")
-        for resp in responses:
-            node_id = resp.get('node_id', 'unknown')
-            output_shape = resp.get('output_shape', [])
-            latency = resp.get('latency', 0)
-            print(f"    {node_id}: output shape {output_shape} (latency: {latency:.2f}s)")
         
         # Weighted voting: fitness × confidence
         weights = []
@@ -80,8 +69,6 @@ class EmbeddingAssembly:
         # Calculate consensus (based on embedding similarity)
         embeddings_list = [r['embeddings'] for r in responses]
         consensus = self._calculate_consensus(embeddings_list)
-        
-        print(f"  [Assembly] Chunk {chunk_id} - Winner: {winner.get('node_id')} (consensus: {consensus*100:.1f}%)")
         
         return (chunk_id, {
             'embeddings': winner['embeddings'],
@@ -135,13 +122,10 @@ class EmbeddingAssembly:
                 loop.run_in_executor(None, node.process_embeddings, embeddings),
                 timeout=node_timeout
             )
-            elapsed = time.time() - start
-            print(f"  [Assembly] {node.node_id} completed in {elapsed:.1f}s")
             result['fitness'] = node.fitness  # Include current fitness
             result['node_id'] = node.node_id  # Ensure node_id is included
             return result
         except asyncio.TimeoutError:
-            print(f"  [Assembly] WARNING: {node.node_id} timed out after {node_timeout}s")
             # Return dummy embeddings on timeout
             dummy_embeddings = torch.zeros_like(embeddings)
             return {

@@ -7,13 +7,13 @@
   "superclusters": {
     "sc-main": {
       "clusters": ["cluster-1"],
-      "direct_nodes": ["node-direct-1"],
+      "direct_nodes": [],
       "fitness": 0.7
     }
   },
   "clusters": {
     "cluster-1": {
-      "nodes": ["node-1", "node-2", "node-3", "node-4"],
+      "nodes": ["node-1", "node-2"],
       "fitness": 0.7,
       "supercluster": "sc-main"
     }
@@ -28,21 +28,6 @@
       "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
       "fitness": 0.7,
       "cluster": "cluster-1"
-    },
-    "node-3": {
-      "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-      "fitness": 0.7,
-      "cluster": "cluster-1"
-    },
-    "node-4": {
-      "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-      "fitness": 0.7,
-      "cluster": "cluster-1"
-    },
-    "node-direct-1": {
-      "model_name": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-      "fitness": 0.7,
-      "supercluster": "sc-main"
     }
   }
 }

@@ -1,20 +1,24 @@
 """Query Decomposer: Rule-based keyword matching to break queries into chunks."""
 import re
 from typing import List, Dict, Any
+from minimal.query_classifier import get_classifier
 
 
 class QueryDecomposer:
     """Rule-based query decomposition into operation chunks."""
     
-    OPERATIONS = {
-        'MATH_OP': ['calculate', 'compute', 'solve', 'what is', 'how much', '%', '+', '-', '*', '/'],
-        'SEARCH_OP': ['find', 'search', 'look for', 'where is', 'who is', 'what is'],
-        'COMPARE_OP': ['compare', 'difference', 'versus', 'vs', 'better'],
-        'GENERATE_OP': ['write', 'create', 'generate', 'make', 'plan', 'design']
-    }
-    
     # Separators that indicate multiple steps
     SEPARATORS = r'\s+(?:then|and|,|\.|after|before|next|also)\s+'
+    
+    def __init__(self, use_ml_classifier: bool = False):
+        """
+        Initialize decomposer.
+        
+        Args:
+            use_ml_classifier: Whether to use ML-based classification (requires transformers)
+        """
+        self.classifier = get_classifier(use_ml=use_ml_classifier)
+        self.use_ml = use_ml_classifier
     
     def decompose(self, query: str, target_chunks: int = None) -> List[Dict[str, Any]]:
         """
@@ -119,10 +123,15 @@ class QueryDecomposer:
         return chunks
     
     def _detect_operation(self, text: str) -> str:
-        """Detect operation type from text."""
-        text_lower = text.lower()
-        for op_type, keywords in self.OPERATIONS.items():
-            if any(kw in text_lower for kw in keywords):
-                return op_type
-        return 'GENERATE_OP'
+        """
+        Detect operation type from text using hybrid classifier.
+        
+        Args:
+            text: Query text to classify
+            
+        Returns:
+            Operation type string
+        """
+        result = self.classifier.classify(text)
+        return result['operation']
 
