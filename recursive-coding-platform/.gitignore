@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.venv/
 env/
 venv/
 ENV/
@@ -23,6 +24,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# Models
+models/*.gguf
+models/*.bin
+*.gguf
+
 # IDE
 .vscode/
 .idea/
@@ -30,17 +36,14 @@ wheels/
 *.swo
 *~
 
-# Environment
-.env
-.env.local
-
-# Logs
-*.log
-
 # OS
 .DS_Store
 Thumbs.db
 
-# Model files
-models/
+# Logs
+*.log
 
+# Generated output
+output/
+shared_state.json
+shared_state.lock
